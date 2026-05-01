@@ -1,0 +1,23 @@
+```
+# Dependencies
+node_modules/
+
+# Temp files
+tmp/
+*.tmp
+
+# Database files
+*.db
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
+```
