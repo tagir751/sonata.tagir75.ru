@@ -38,8 +38,29 @@ router.post('/excursions', (req, res) => {
 
 router.delete('/excursions/:id', (req, res) => {
   try {
+    // Проверяем, есть ли активные рейсы с этой экскурсией
+    const activeTrips = db.prepare(`
+      SELECT COUNT(*) as count FROM active_excursions 
+      WHERE excursion_id = ? AND status = 'active'
+    `).get(req.params.id);
+    
+    if (activeTrips.count > 0) {
+      return res.status(400).json({ error: 'Нельзя удалить экскурсию: есть активные рейсы. Сначала отмените рейсы или сделайте экскурсию неактивной.' });
+    }
+    
+    // Проверяем, есть ли продажи
+    const hasSales = db.prepare(`
+      SELECT COUNT(*) as count FROM sales s
+      JOIN active_excursions ae ON s.active_excursion_id = ae.id
+      WHERE ae.excursion_id = ?
+    `).get(req.params.id);
+    
+    if (hasSales.count > 0) {
+      return res.status(400).json({ error: 'Нельзя удалить экскурсию: есть заказы с продажами. Экскурсия остаётся в истории.' });
+    }
+    
     db.prepare('UPDATE excursions SET active = 0 WHERE id = ?').run(req.params.id);
-    res.json({ success: true });
+    res.json({ success: true, message: 'Экскурсия деактивирована' });
   } catch (err) {
     console.error('Ошибка удаления экскурсии:', err);
     res.status(500).json({ error: err.message });
@@ -249,8 +270,18 @@ router.put('/agents/:id/password', (req, res) => {
 
 router.delete('/agents/:id', (req, res) => {
   try {
+    // Проверяем, есть ли продажи у этого агента
+    const agentSales = db.prepare(`
+      SELECT COUNT(*) as count FROM sales 
+      WHERE seller_username = (SELECT name FROM agents WHERE id = ?)
+    `).get(req.params.id);
+    
+    if (agentSales.count > 0) {
+      return res.status(400).json({ error: 'Нельзя удалить агента: есть заказы. Агент остаётся в истории.' });
+    }
+    
     db.prepare('DELETE FROM agents WHERE id = ?').run(req.params.id);
-    res.json({ success: true });
+    res.json({ success: true, message: 'Агент удалён' });
   } catch (err) {
     console.error('Ошибка удаления агента:', err);
     res.status(500).json({ error: err.message });
