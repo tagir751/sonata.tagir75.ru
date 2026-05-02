@@ -135,16 +135,19 @@ router.get('/excursion/:id', (req, res) => {
         s.note,
         s.group_id,
         s.is_debt_record,
-        u.full_name as seller_name,
-        p.name as point_name
+        COALESCE(u.full_name, a.name) as seller_name,
+        p.name as point_name,
+        s.payment_time,
+        s.created_at
       FROM sales s
       JOIN route_points rp ON s.seat_order = rp.order_num AND rp.template_id = (
         SELECT template_id FROM active_excursions WHERE id = ?
       )
       LEFT JOIN users u ON s.seller_username = u.username
+      LEFT JOIN agents a ON s.seller_username = a.name
       LEFT JOIN points p ON s.point_id = p.id
       WHERE s.active_excursion_id = ?
-      ORDER BY rp.order_num, s.id
+      ORDER BY rp.order_num, s.created_at
     `).all(id, id);
 
     // Группируем по group_id для отображения
@@ -175,13 +178,18 @@ router.get('/stats/:id', (req, res) => {
   try {
     const { id } = req.params;
     
+    // Получаем все продажи с информацией о продавце (включая агентов)
     const stats = db.prepare(`
       SELECT 
         s.seller_username,
+        COALESCE(u.full_name, a.name) as seller_name,
+        COALESCE(u.role, 'agent') as role,
         COUNT(*) as tickets_sold,
         SUM(s.paid_amount) as total_paid,
         SUM(s.debt_amount) as total_debt
       FROM sales s
+      LEFT JOIN users u ON s.seller_username = u.username
+      LEFT JOIN agents a ON s.seller_username = a.name
       WHERE s.active_excursion_id = ?
       GROUP BY s.seller_username
       ORDER BY tickets_sold DESC

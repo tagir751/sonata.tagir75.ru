@@ -5,6 +5,7 @@ const db = require('../db/init');
 // Получить состояние кассы всех реализаторов
 router.get('/', (req, res) => {
   try {
+    // Сначала реализаторы (SELLER) по алфавиту, потом агенты (AGENT) по алфавиту
     const cashboxData = db.prepare(`
       SELECT 
         c.id,
@@ -14,15 +15,16 @@ router.get('/', (req, res) => {
         u.username,
         u.full_name,
         u.role,
-        p.name as point_name
+        p.name as point_name,
+        1 as sort_order
       FROM cashbox c
       JOIN users u ON c.user_id = u.id
       LEFT JOIN points p ON u.point_id = p.id
-      WHERE u.role IN ('seller', 'agent')
-      ORDER BY u.username
+      WHERE u.role IN ('seller', 'agent') AND u.role != 'agent'
+      ORDER BY u.full_name COLLATE NOCASE
     `).all();
 
-    // Добавляем агентов
+    // Агенты по алфавиту
     const agentsCashbox = db.prepare(`
       SELECT 
         c.id,
@@ -32,13 +34,19 @@ router.get('/', (req, res) => {
         a.name as username,
         a.name as full_name,
         'agent' as role,
-        p.name as point_name
+        p.name as point_name,
+        2 as sort_order
       FROM cashbox c
       JOIN agents a ON c.user_id = a.id
       LEFT JOIN points p ON a.point_id = p.id
+      ORDER BY a.name COLLATE NOCASE
     `).all();
 
-    res.json([...cashboxData, ...agentsCashbox]);
+    // Объединяем: сначала реализаторы, потом агенты
+    const allCashbox = [...cashboxData, ...agentsCashbox];
+    
+    // Сортируем внутри каждой группы уже сделано в SQL, теперь просто объединяем
+    res.json(allCashbox);
   } catch (err) {
     console.error('Ошибка получения данных кассы:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
@@ -97,6 +105,30 @@ router.post('/reset', (req, res) => {
       SET amount = 0, last_reset = CURRENT_TIMESTAMP
       WHERE user_id = ?
     `).run(user_id);
+
+    res.json({ success: true, message: 'Касса обнулена' });
+  } catch (err) {
+    console.error('Ошибка обнуления кассы:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Обнулить кассу по ID пользователя (новый endpoint для мобильных)
+router.post('/users/:id/reset-cash', (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const currentUser = req.session.user;
+    
+    // Только менеджер может обнулять кассы других
+    if (currentUser.role !== 'manager' && userId !== currentUser.id) {
+      return res.status(403).json({ error: 'Нет доступа' });
+    }
+
+    db.prepare(`
+      UPDATE cashbox 
+      SET amount = 0, last_reset = CURRENT_TIMESTAMP
+      WHERE user_id = ?
+    `).run(userId);
 
     res.json({ success: true, message: 'Касса обнулена' });
   } catch (err) {

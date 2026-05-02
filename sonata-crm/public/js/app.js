@@ -1,6 +1,8 @@
 // Глобальные переменные
 let currentUser = null;
 let refreshInterval = null;
+let lastChatMessageId = 0;
+let unreadChatCount = 0;
 
 // Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', async () => {
@@ -120,6 +122,7 @@ function loadTabData(tab) {
       break;
     case 'chat':
       loadChatMessages();
+      resetChatBadge(); // Сбрасываем бейдж при открытии чата
       break;
     case 'cashbox':
       loadCashbox();
@@ -276,6 +279,27 @@ async function loadChatMessages() {
     const container = document.getElementById('chatMessages');
     if (!container) return;
     
+    // Подсчёт новых сообщений
+    let newMessagesCount = 0;
+    messages.forEach(msg => {
+      if (msg.id > lastChatMessageId && msg.sender_username !== currentUser.username) {
+        newMessagesCount++;
+      }
+    });
+    
+    // Обновляем счётчик непрочитанных
+    if (newMessagesCount > 0 && lastChatMessageId > 0) {
+      unreadChatCount += newMessagesCount;
+    }
+    
+    // Обновляем последний ID сообщения
+    if (messages.length > 0) {
+      lastChatMessageId = Math.max(...messages.map(m => m.id));
+    }
+    
+    // Отображаем бейдж на кнопке чата
+    updateChatBadge();
+    
     container.innerHTML = messages.map(msg => `
       <div class="chat-message ${msg.is_manager ? 'manager' : 'regular'}">
         <div class="sender">${msg.sender_username}${msg.is_manager ? ' (менеджер)' : ''}</div>
@@ -289,6 +313,32 @@ async function loadChatMessages() {
   } catch (err) {
     console.error('Ошибка загрузки чата:', err);
   }
+}
+
+// Обновление бейджа на кнопке чата
+function updateChatBadge() {
+  const chatBtn = document.querySelector('[data-tab="chat"]');
+  if (!chatBtn) return;
+  
+  // Удаляем старый бейдж если есть
+  const oldBadge = chatBtn.querySelector('.chat-badge');
+  if (oldBadge) oldBadge.remove();
+  
+  // Добавляем новый бейдж если есть непрочитанные
+  if (unreadChatCount > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'chat-badge';
+    badge.textContent = unreadChatCount > 99 ? '99+' : unreadChatCount;
+    badge.style.cssText = 'position:absolute;top:5px;right:5px;background:#dc3545;color:white;border-radius:50%;padding:2px 6px;font-size:10px;min-width:18px;text-align:center;';
+    chatBtn.style.position = 'relative';
+    chatBtn.appendChild(badge);
+  }
+}
+
+// Сброс счётчика непрочитанных при открытии чата
+function resetChatBadge() {
+  unreadChatCount = 0;
+  updateChatBadge();
 }
 
 // Отправка сообщения в чат
@@ -310,6 +360,7 @@ async function handleChatSubmit(e) {
     if (response.ok) {
       input.value = '';
       loadChatMessages();
+      resetChatBadge(); // Сбрасываем бейдж после отправки своего сообщения
     }
   } catch (err) {
     console.error('Ошибка отправки сообщения:', err);
@@ -333,6 +384,7 @@ async function loadCashbox() {
       
       const tbody = document.querySelector('#allCashboxTable tbody');
       if (tbody) {
+        // Сначала реализаторы, потом агенты - уже отсортировано на сервере
         tbody.innerHTML = allCashbox.map(c => `
           <tr>
             <td>${c.full_name || c.username}</td>
@@ -350,19 +402,31 @@ async function loadCashbox() {
   }
 }
 
-// Обнуление кассы
+// Обнуление кассы - используем новый endpoint /api/users/[id]/reset-cash
 async function resetCashbox(userId) {
   if (!confirm('Обнулить кассу этого реализатора?')) return;
   
   try {
-    const response = await fetch('/api/cashbox/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId })
+    // Пробуем новый endpoint сначала
+    let response = await fetch(`/api/users/${userId}/reset-cash`, {
+      method: 'POST'
     });
+    
+    // Если такого endpoint нет, используем старый
+    if (!response.ok) {
+      response = await fetch('/api/cashbox/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      });
+    }
     
     if (response.ok) {
       loadCashbox();
+      alert('Касса обнулена');
+    } else {
+      const result = await response.json();
+      alert('Ошибка: ' + result.error);
     }
   } catch (err) {
     alert('Ошибка обнуления кассы');

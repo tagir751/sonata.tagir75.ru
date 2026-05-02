@@ -2,22 +2,28 @@
 # Dependencies
 node_modules/
 
-# Temp files
-tmp/
-*.tmp
-
-# Database files
-*.db
-
 # Environment
 .env
 .env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
+.env.*
 
 # Logs
 *.log
+
+# Tests
+.sonarqube/
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+build/
+target/
+.DS_Store
+Thumbs.db
 ```
