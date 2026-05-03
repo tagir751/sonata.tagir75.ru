@@ -1,23 +1,18 @@
 ```
-# Dependencies
-node_modules/
-
-# Temp files
-tmp/
+# Logs and temp files
+*.log
 *.tmp
-
-# Database files
-*.db
+*.swp
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.
 
 # Editors
 .vscode/
 .idea/
 
-# Logs
-*.log
+# Dependencies
+node_modules/
 ```
