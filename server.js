@@ -94,6 +94,9 @@ function initializeDatabase() {
         FOREIGN KEY (excursionId) REFERENCES excursions(id),
         FOREIGN KEY (routeTemplateId) REFERENCES routeTemplates(id)
     )`);
+    
+    // Индекс для быстрого поиска активных экскурсий
+    db.run(`CREATE INDEX IF NOT EXISTS idx_active_excursions_date ON activeExcursions(excursionDate, isActive)`);
 
     // Таблица водителей
     db.run(`CREATE TABLE IF NOT EXISTS drivers (
@@ -117,6 +120,7 @@ function initializeDatabase() {
         activeExcursionId INTEGER NOT NULL,
         sellerUsername TEXT NOT NULL,
         salesPointId INTEGER,
+        salesPointName TEXT,
         passengerSurname TEXT NOT NULL,
         passengerPhone TEXT,
         stopName TEXT NOT NULL,
@@ -213,6 +217,7 @@ app.get('/api/active-excursions', (req, res) => {
             WHERE ae.isActive = 1 AND ae.excursionDate >= date('now')
             ORDER BY ae.excursionDate, e.name`, [], (err, rows) => {
         if (err) {
+            console.error('Ошибка загрузки активных экскурсий:', err.message);
             return res.status(500).json({ error: err.message });
         }
         res.json(rows);
@@ -233,35 +238,51 @@ app.post('/api/sales', (req, res) => {
         prepaidAmount, 
         debtAmount, 
         note, 
-        quantity 
+        quantity,
+        salesPointName
     } = req.body;
 
-    const stmt = db.prepare(`INSERT INTO sales 
-        (activeExcursionId, sellerUsername, salesPointId, passengerSurname, passengerPhone, 
-         stopName, stopTime, fullPrice, prepaidAmount, debtAmount, note, isDebtRecord) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+        
+        const stmt = db.prepare(`INSERT INTO sales 
+            (activeExcursionId, sellerUsername, salesPointId, passengerSurname, passengerPhone, 
+             stopName, stopTime, fullPrice, prepaidAmount, debtAmount, note, isDebtRecord, salesPointName) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-    for (let i = 0; i < quantity; i++) {
-        const isDebt = (i === 0 && debtAmount > 0) ? 1 : 0;
-        const debt = (i === 0) ? debtAmount : 0;
-        stmt.run(activeExcursionId, sellerUsername, salesPointId, surname, phone, 
-                 stopName, stopTime, fullPrice / quantity, prepaidAmount / quantity, debt, note, isDebt);
-    }
-
-    stmt.finalize((err) => {
-        if (err) {
-            return res.status(500).json({ error: err.message });
+        for (let i = 0; i < quantity; i++) {
+            const isDebt = (i === 0 && debtAmount > 0) ? 1 : 0;
+            const debt = (i === 0) ? debtAmount : 0;
+            stmt.run(activeExcursionId, sellerUsername, salesPointId, surname, phone, 
+                     stopName, stopTime, fullPrice / quantity, prepaidAmount / quantity, debt, note, isDebt, salesPointName || null);
         }
-        
-        // Обновление налички у реализатора
-        db.run(`UPDATE users SET cashOnHand = cashOnHand + ? WHERE username = ?`, 
-            [prepaidAmount, sellerUsername]);
-        
-        // Обновление налички у агента
-        db.run(`UPDATE agents SET cashOnHand = cashOnHand + ? WHERE name = ?`, 
-            [prepaidAmount, sellerUsername]);
 
-        res.json({ success: true });
+        stmt.finalize((err) => {
+            if (err) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ error: err.message });
+            }
+            
+            // Обновление налички у реализатора
+            db.run(`UPDATE users SET cashOnHand = cashOnHand + ? WHERE username = ?`, 
+                [prepaidAmount, sellerUsername], (err) => {
+                    if (err) console.error('Ошибка обновления налички пользователя:', err);
+                });
+            
+            // Обновление налички у агента
+            db.run(`UPDATE agents SET cashOnHand = cashOnHand + ? WHERE name = ?`, 
+                [prepaidAmount, sellerUsername], (err) => {
+                    if (err) console.error('Ошибка обновления налички агента:', err);
+                });
+
+            db.run('COMMIT', (err) => {
+                if (err) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json({ success: true });
+            });
+        });
     });
 });
 
@@ -279,6 +300,7 @@ app.get('/api/sales/:activeExcursionId', (req, res) => {
         [activeExcursionId, activeExcursionId], 
         (err, rows) => {
             if (err) {
+                console.error('Ошибка получения продаж:', err.message);
                 return res.status(500).json({ error: err.message });
             }
             res.json(rows);
@@ -291,9 +313,9 @@ app.get('/api/admin-data', (req, res) => {
     const data = {};
     
     const tables = {
-        users: 'users',
+        users: 'SELECT * FROM users ORDER BY fullName COLLATE NOCASE',
         salesPoints: 'salesPoints',
-        agents: 'agents',
+        agents: 'SELECT * FROM agents ORDER BY name COLLATE NOCASE',
         excursions: 'excursions',
         routeTemplates: 'routeTemplates',
         drivers: 'drivers',
@@ -301,7 +323,8 @@ app.get('/api/admin-data', (req, res) => {
         activeExcursions: `SELECT ae.*, e.name as excursionName, rt.name as routeName 
                           FROM activeExcursions ae 
                           JOIN excursions e ON ae.excursionId = e.id 
-                          JOIN routeTemplates rt ON ae.routeTemplateId = rt.id`
+                          JOIN routeTemplates rt ON ae.routeTemplateId = rt.id`,
+        routeStops: 'routeStops'
     };
 
     let completed = 0;
@@ -310,6 +333,7 @@ app.get('/api/admin-data', (req, res) => {
     Object.entries(tables).forEach(([key, query]) => {
         db.all(query, [], (err, rows) => {
             if (err) {
+                console.error('Ошибка получения таблицы ' + key + ':', err.message);
                 data[key] = [];
             } else {
                 data[key] = rows;
@@ -437,4 +461,144 @@ app.post('/api/import/excel', upload.single('file'), (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
+});
+
+// API для удаления записей
+app.post('/api/delete', (req, res) => {
+    const { table, id } = req.body;
+    
+    // Разрешённые таблицы для удаления
+    const allowedTables = ['users', 'agents', 'excursions', 'routeTemplates', 'drivers', 'guides', 'salesPoints'];
+    
+    if (!allowedTables.includes(table)) {
+        return res.status(400).json({ error: 'Недопустимая таблица' });
+    }
+    
+    // Особая логика для разных таблиц
+    if (table === 'excursions') {
+        // Проверяем, есть ли активные экскурсии с этой экскурсией
+        db.get(`SELECT COUNT(*) as count FROM activeExcursions WHERE excursionId = ?`, [id], (err, row) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (row.count > 0) {
+                // Нельзя удалить, только деактивировать
+                db.run(`UPDATE excursions SET isActive = 0 WHERE id = ?`, [id], function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, deactivated: true });
+                });
+            } else {
+                // Можно удалить полностью
+                db.run(`DELETE FROM excursions WHERE id = ?`, [id], function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, deleted: true });
+                });
+            }
+        });
+    } else if (table === 'agents') {
+        // Для агентов проверяем наличие продаж
+        db.get(`SELECT COUNT(*) as count FROM sales WHERE sellerUsername IN (SELECT name FROM agents WHERE id = ?)`, [id], (err, row) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (row.count > 0) {
+                // Нельзя удалить, только деактивировать
+                db.run(`UPDATE agents SET isActive = 0 WHERE id = ?`, [id], function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, deactivated: true });
+                });
+            } else {
+                db.run(`DELETE FROM agents WHERE id = ?`, [id], function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, deleted: true });
+                });
+            }
+        });
+    } else if (table === 'users') {
+        // Для пользователей проверяем наличие продаж
+        db.get(`SELECT COUNT(*) as count FROM sales WHERE sellerUsername IN (SELECT username FROM users WHERE id = ?)`, [id], (err, row) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (row.count > 0) {
+                // Нельзя удалить, только деактивировать
+                db.run(`UPDATE users SET isActive = 0 WHERE id = ?`, [id], function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, deactivated: true });
+                });
+            } else {
+                db.run(`DELETE FROM users WHERE id = ?`, [id], function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ success: true, deleted: true });
+                });
+            }
+        });
+    } else {
+        // Остальные таблицы удаляем напрямую
+        db.run(`DELETE FROM ${table} WHERE id = ?`, [id], function(err) {
+            if (err) {
+                console.error('Ошибка удаления из таблицы ' + table + ':', err.message);
+                return res.status(500).json({ error: err.message });
+            }
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Запись не найдена' });
+            }
+            res.json({ success: true });
+        });
+    }
+});
+
+// API для деактивации экскурсии (вместо удаления)
+app.post('/api/deactivate-excursion', (req, res) => {
+    const { id } = req.body;
+    
+    // Проверяем, есть ли продажи у этой экскурсии
+    db.get(`SELECT COUNT(*) as count FROM sales WHERE activeExcursionId = ?`, [id], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        
+        if (row.count > 0) {
+            // Нельзя удалить, только деактивировать
+            db.run(`UPDATE activeExcursions SET isActive = 0 WHERE id = ?`, [id], function(err) {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json({ success: true, deactivated: true });
+            });
+        } else {
+            // Можно удалить полностью
+            db.run(`DELETE FROM activeExcursions WHERE id = ?`, [id], function(err) {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json({ success: true, deleted: true });
+            });
+        }
+    });
+});
+
+// API для получения последнего ID сообщения в чате (для уведомлений)
+app.get('/api/chat/last-id', (req, res) => {
+    db.get(`SELECT MAX(id) as lastId FROM chatMessages`, [], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ lastId: row.lastId || 0 });
+    });
 });

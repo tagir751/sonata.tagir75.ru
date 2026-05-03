@@ -114,6 +114,9 @@
             border-left: 4px solid #667eea;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
         
         .excursion-card:hover {
@@ -124,6 +127,41 @@
         .excursion-card h3 {
             color: #333;
             margin-bottom: 10px;
+            word-break: break-word;
+        }
+        
+        .excursion-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-action {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        
+        .btn-action.sell {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-action.sell:hover {
+            background: #5a6fd6;
+        }
+        
+        .btn-action.view {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-action.view:hover {
+            background: #218838;
         }
         
         .excursion-date {
@@ -186,6 +224,32 @@
             height: 400px;
             display: flex;
             flex-direction: column;
+        }
+        
+        .chat-notification {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .chat-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff4444;
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
         }
         
         .chat-messages {
@@ -342,7 +406,7 @@
     <div class="container">
         <div class="tabs">
             <button class="tab active" onclick="showTab('sales')">Продажи</button>
-            <button class="tab" onclick="showTab('chat')" id="chatTab">Чат</button>
+            <button class="tab chat-notification" id="chatTabBtn" onclick="showTab('chat')"><span id="chatTabText">Чат</span><span id="chatBadge" class="chat-badge hidden">0</span></button>
             <button class="tab hidden" id="adminTab" onclick="showTab('admin')">Администрирование</button>
             <button class="tab hidden" id="cashTab" onclick="showTab('cash')">Наличка</button>
         </div>
@@ -391,12 +455,12 @@
                 
                 <div class="form-group">
                     <label>Принято денег (₽) *</label>
-                    <input type="number" id="prepaidAmount" required onchange="updateTotalFields()">
+                    <input type="number" id="prepaidAmount" required onchange="updateTotalFields()" placeholder="Введите сумму">
                 </div>
                 
                 <div class="form-group">
                     <label>Долг (₽)</label>
-                    <input type="number" id="debtAmount" value="0" readonly>
+                    <input type="number" id="debtAmount" readonly placeholder="0">
                 </div>
                 
                 <div class="form-group">
@@ -551,6 +615,8 @@
         let currentUser = null;
         let adminData = {};
         let refreshInterval = null;
+        let lastChatId = 0;
+        let unreadChatCount = 0;
         
         // Инициализация
         document.addEventListener('DOMContentLoaded', () => {
@@ -571,16 +637,70 @@
             
             loadExcursions();
             loadChat();
+            checkChatUpdates();
             
             // Автообновление каждые 10 секунд
             refreshInterval = setInterval(() => {
                 loadExcursions();
                 loadChat();
+                checkChatUpdates();
                 if (currentUser.role === 'manager') {
                     loadAdminData();
                 }
             }, 10000);
         });
+        
+        async function checkChatUpdates() {
+            try {
+                const response = await fetch('/api/chat/last-id');
+                const data = await response.json();
+                if (data.lastId > lastChatId) {
+                    // Есть новые сообщения
+                    if (lastChatId > 0) {
+                        // Не первое обновление - показываем уведомление
+                        unreadChatCount++;
+                        updateChatBadge();
+                        // Воспроизводим звук уведомления
+                        playNotificationSound();
+                    }
+                    lastChatId = data.lastId;
+                }
+            } catch (error) {
+                console.error('Ошибка проверки чата:', error);
+            }
+        }
+        
+        function updateChatBadge() {
+            const badge = document.getElementById('chatBadge');
+            if (unreadChatCount > 0) {
+                badge.textContent = unreadChatCount > 9 ? '9+' : unreadChatCount;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+        
+        function playNotificationSound() {
+            // Простой звук уведомления через Web Audio API
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+            } catch (e) {
+                console.log('Звук уведомления не воспроизведён:', e);
+            }
+        }
         
         function logout() {
             localStorage.removeItem('user');
@@ -606,15 +726,96 @@
                 
                 const grid = document.getElementById('excursionGrid');
                 grid.innerHTML = excursions.map(exc => `
-                    <div class="excursion-card" onclick="selectExcursion(${exc.id}, '${exc.excursionName}', '${exc.excursionDate}')">
+                    <div class="excursion-card">
                         <h3>${exc.excursionName}</h3>
                         <div class="excursion-date">📅 ${formatDate(exc.excursionDate)}</div>
                         <div class="excursion-date">🗺️ ${exc.routeName}</div>
                         <div class="sold-count">Продано: ${exc.soldCount}</div>
+                        <div class="excursion-actions" onclick="event.stopPropagation()">
+                            <button class="btn-action sell" onclick="selectExcursion(${exc.id}, '${exc.excursionName.replace(/'/g, "\\'")}', '${exc.excursionDate}')">💰 Продать</button>
+                            <button class="btn-action view" onclick="viewExcursionSales(${exc.id}, '${exc.excursionName.replace(/'/g, "\\'")}', '${exc.excursionDate}')">📋 Просмотр</button>
+                        </div>
                     </div>
                 `).join('');
             } catch (error) {
                 console.error('Ошибка загрузки экскурсий:', error);
+            }
+        }
+        
+        async function viewExcursionSales(id, name, date) {
+            document.getElementById('sales').classList.remove('active');
+            document.getElementById('saleForm').classList.add('active');
+            
+            document.getElementById('selectedExcursionTitle').textContent = `${name} - ${formatDate(date)} (Просмотр продаж)`;
+            document.getElementById('activeExcursionId').value = id;
+            
+            // Загрузка точек посадки и продаж
+            try {
+                const salesResponse = await fetch(`/api/sales/${id}`);
+                const sales = await salesResponse.json();
+                
+                // Группировка по groupId для отображения групп
+                const groupedSales = {};
+                sales.forEach(sale => {
+                    if (!groupedSales[sale.groupId]) {
+                        groupedSales[sale.groupId] = {
+                            ...sale,
+                            persons: 1,
+                            totalDebt: sale.debtAmount || 0
+                        };
+                    } else {
+                        groupedSales[sale.groupId].persons++;
+                    }
+                });
+                
+                const formContent = document.getElementById('createSaleForm');
+                formContent.style.display = 'none';
+                
+                let salesHtml = `<div style="overflow-x: auto;"><table class="data-table"><thead><tr>
+                    <th>Дата/Время продажи</th>
+                    <th>Фамилия</th>
+                    <th>Кол-во</th>
+                    <th>Телефон</th>
+                    <th>Место посадки</th>
+                    <th>Время</th>
+                    <th>Предоплата</th>
+                    <th>Долг</th>
+                    <th>Реализатор</th>
+                    <th>Примечание</th>
+                </tr></thead><tbody>`;
+                
+                const sortedSales = Object.values(groupedSales).sort((a, b) => {
+                    const orderA = parseInt(a.stopOrder) || 999;
+                    const orderB = parseInt(b.stopOrder) || 999;
+                    return orderA - orderB;
+                });
+                
+                sortedSales.forEach(sale => {
+                    const saleDate = new Date(sale.saleDate).toLocaleString('ru-RU', { 
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+                    });
+                    salesHtml += `<tr>
+                        <td>${saleDate}</td>
+                        <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;" title="${sale.passengerSurname}">${sale.passengerSurname}</td>
+                        <td>${sale.persons}</td>
+                        <td>${sale.passengerPhone || '-'}</td>
+                        <td>${sale.stopName}</td>
+                        <td>${sale.stopTime || '-'}</td>
+                        <td>${(sale.prepaidAmount * sale.persons).toFixed(2)}</td>
+                        <td>${sale.totalDebt > 0 ? sale.totalDebt : '-'}</td>
+                        <td>${sale.sellerUsername}</td>
+                        <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;" title="${sale.note || ''}">${sale.note || '-'}</td>
+                    </tr>`;
+                });
+                
+                salesHtml += '</tbody></table></div>';
+                salesHtml += `<button class="btn-primary" style="margin-top: 20px;" onclick="backToExcursions()">Назад</button>`;
+                
+                formContent.innerHTML = salesHtml;
+                
+            } catch (error) {
+                console.error('Ошибка загрузки продаж:', error);
+                alert('Ошибка загрузки данных о продажах');
             }
         }
         
@@ -782,6 +983,12 @@
                 `).join('');
                 
                 chatDiv.scrollTop = chatDiv.scrollHeight;
+                
+                // При просмотре чата сбрасываем счётчик непрочитанных
+                if (unreadChatCount > 0) {
+                    unreadChatCount = 0;
+                    updateChatBadge();
+                }
             } catch (error) {
                 console.error('Ошибка загрузки чата:', error);
             }
@@ -834,9 +1041,10 @@
                 
                 fillTable('sellersTable', adminData.users?.filter(u => u.role === 'seller') || [], row => `
                     <td>${row.fullName || row.username}</td>
-                    <td>${row.salesPointId || '-'}</td>
+                    <td>${getSalesPointName(row.salesPointId)}</td>
                     <td>${row.cashOnHand} ₽</td>
                     <td>
+                        <button class="btn-small" onclick="deleteItem('users', ${row.id}, '${row.username}')">🗑️</button>
                         <button class="btn-small" onclick="changePassword('${row.username}', '${row.role}')">🔑 Пароль</button>
                     </td>
                 `);
@@ -845,6 +1053,7 @@
                     <td>${row.name}</td>
                     <td>${row.cashOnHand} ₽</td>
                     <td>
+                        <button class="btn-small" onclick="deleteItem('agents', ${row.id}, '${row.name}')">🗑️</button>
                         <button class="btn-small" onclick="changePassword('${row.name}', 'agent')">🔑 Пароль</button>
                     </td>
                 `);
@@ -852,21 +1061,82 @@
                 fillTable('excursionsTable', adminData.excursions || [], row => `
                     <td>${row.name}</td>
                     <td>${row.basePrice || '-'} ₽</td>
-                    <td><button class="btn-small" onclick="editItem('excursions', ${row.id})">✏️</button></td>
+                    <td><button class="btn-small" onclick="deleteItem('excursions', ${row.id}, '${row.name}')">🗑️</button></td>
                 `);
                 
                 fillTable('routeTemplatesTable', adminData.routeTemplates || [], row => `
                     <td>${row.name}</td>
-                    <td><button class="btn-small" onclick="editItem('routeTemplates', ${row.id})">✏️</button></td>
+                    <td><button class="btn-small" onclick="deleteItem('routeTemplates', ${row.id}, '${row.name}')">🗑️</button></td>
                 `);
                 
                 fillTable('driversTable', adminData.drivers || [], row => `
                     <td>${row.lastName} ${row.firstName}</td>
                     <td>${row.phone || '-'}</td>
+                    <td><button class="btn-small" onclick="deleteItem('drivers', ${row.id}, '${row.lastName}')">🗑️</button></td>
+                `);
+                
+                fillTable('guidesTable', adminData.guides || [], row => `
+                    <td>${row.lastName} ${row.firstName}</td>
+                    <td>${row.phone || '-'}</td>
+                    <td><button class="btn-small" onclick="deleteItem('guides', ${row.id}, '${row.lastName}')">🗑️</button></td>
                 `);
                 
             } catch (error) {
                 console.error('Ошибка загрузки админ-данных:', error);
+            }
+        }
+        
+        function getSalesPointName(id) {
+            if (!id) return '-';
+            const point = adminData.salesPoints?.find(p => p.id === id);
+            return point ? point.name : '-';
+        }
+        
+        async function deleteItem(table, id, name) {
+            if (!confirm(`Удалить "${name}"? Это действие нельзя отменить!`)) return;
+            
+            try {
+                const response = await fetch('/api/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table, id })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    alert('✅ Удалено успешно!');
+                    loadAdminData();
+                } else {
+                    alert('❌ Ошибка: ' + result.error);
+                }
+            } catch (error) {
+                alert('❌ Ошибка подключения к серверу');
+            }
+        }
+        
+        async function deactivateExcursion(id) {
+            if (!confirm('Деактивировать эту экскурсию? Она останется в истории, но не будет видна реализаторам.')) return;
+            
+            try {
+                const response = await fetch('/api/deactivate-excursion', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    if (result.deactivated) {
+                        alert('ℹ️ Экскурсия деактивирована (есть продажи, удаление невозможно)');
+                    } else {
+                        alert('✅ Экскурсия удалена');
+                    }
+                    loadAdminData();
+                } else {
+                    alert('❌ Ошибка: ' + result.error);
+                }
+            } catch (error) {
+                alert('❌ Ошибка подключения к серверу');
             }
         }
         
@@ -876,20 +1146,27 @@
         }
         
         async function loadCashData() {
+            const sellers = adminData.users?.filter(u => u.role === 'seller') || [];
+            const agents = adminData.agents || [];
+            
+            // Сортировка: сначала реализаторы по алфавиту, потом агенты по алфавиту
+            sellers.sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+            agents.sort((a, b) => a.name.localeCompare(b.name));
+            
             const allSellers = [
-                ...(adminData.users?.filter(u => u.role === 'seller') || []),
-                ...(adminData.agents || [])
+                ...sellers.map(s => ({ ...s, type: 'seller' })),
+                ...agents.map(a => ({ ...a, type: 'agent' }))
             ];
             
             const tbody = document.querySelector('#cashTable tbody');
             tbody.innerHTML = allSellers.map(person => `
                 <tr>
-                    <td>${person.fullName || person.name || person.username}</td>
-                    <td>${person.cashOnHand} ₽</td>
+                    <td>${person.type === 'seller' ? '👤' : '🏨'} ${person.fullName || person.name || person.username}</td>
+                    <td style="white-space: nowrap;">${person.cashOnHand} ₽</td>
                     <td>
                         ${person.cashOnHand > 0 ? 
-                            `<button class="btn-small" onclick="collectCash('${person.username || person.name}', ${person.cashOnHand})">💰 Забрать</button>` : 
-                            '-'}
+                            `<button class="btn-small" style="white-space: nowrap;" onclick="collectCash('${person.username || person.name}', ${person.cashOnHand})">💰 Забрать</button>` : 
+                            '<span style="color: #999;">-</span>'}
                     </td>
                 </tr>
             `).join('');
