@@ -117,6 +117,7 @@ function initializeDatabase() {
     // Таблица продаж
     db.run(`CREATE TABLE IF NOT EXISTS sales (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        groupId TEXT NOT NULL,
         activeExcursionId INTEGER NOT NULL,
         sellerUsername TEXT NOT NULL,
         salesPointId INTEGER,
@@ -242,24 +243,29 @@ app.post('/api/sales', (req, res) => {
         salesPointName
     } = req.body;
 
+    // Генерация groupId для группы
+    const groupId = 'grp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
     db.serialize(() => {
         db.run('BEGIN TRANSACTION');
         
         const stmt = db.prepare(`INSERT INTO sales 
-            (activeExcursionId, sellerUsername, salesPointId, passengerSurname, passengerPhone, 
+            (groupId, activeExcursionId, sellerUsername, salesPointId, passengerSurname, passengerPhone, 
              stopName, stopTime, fullPrice, prepaidAmount, debtAmount, note, isDebtRecord, salesPointName) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
         for (let i = 0; i < quantity; i++) {
             const isDebt = (i === 0 && debtAmount > 0) ? 1 : 0;
             const debt = (i === 0) ? debtAmount : 0;
-            stmt.run(activeExcursionId, sellerUsername, salesPointId, surname, phone, 
-                     stopName, stopTime, fullPrice / quantity, prepaidAmount / quantity, debt, note, isDebt, salesPointName || null);
+            // Не делим цену и предоплату на количество - это общая сумма за группу
+            stmt.run(groupId, activeExcursionId, sellerUsername, salesPointId, surname, phone, 
+                     stopName, stopTime, fullPrice, prepaidAmount, debt, note, isDebt, salesPointName || null);
         }
 
         stmt.finalize((err) => {
             if (err) {
                 db.run('ROLLBACK');
+                console.error('Ошибка создания продаж:', err.message);
                 return res.status(500).json({ error: err.message });
             }
             
@@ -278,6 +284,7 @@ app.post('/api/sales', (req, res) => {
             db.run('COMMIT', (err) => {
                 if (err) {
                     db.run('ROLLBACK');
+                    console.error('Ошибка коммита транзакции:', err.message);
                     return res.status(500).json({ error: err.message });
                 }
                 res.json({ success: true });
