@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Учёт продаж экскурсий</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Страница авторизации -->
+    <div id="login-page" class="page">
+        <div class="login-container">
+            <img src="logo.png" alt="Логотип" class="logo" onerror="this.style.display='none'">
+            <h1>Вход в систему</h1>
+            <form id="login-form">
+                <input type="text" id="login-username" placeholder="Логин" required>
+                <input type="password" id="login-password" placeholder="Пароль" required>
+                <button type="submit" class="btn-primary">Войти</button>
+            </form>
+            <p id="login-error" class="error"></p>
+        </div>
+    </div>
+
+    <!-- Основная страница -->
+    <div id="main-page" class="page hidden">
+        <header class="header">
+            <h1>Учёт продаж экскурсий</h1>
+            <div class="header-info">
+                <span id="user-info"></span>
+                <button id="logout-btn" class="btn-secondary">Выход</button>
+            </div>
+        </header>
+
+        <nav class="nav">
+            <button class="nav-btn active" data-view="sales">Продажи</button>
+            <button class="nav-btn" data-view="driver-sheet">Водительский лист</button>
+            <button class="nav-btn" data-view="cash">Касса</button>
+            <button class="nav-btn" data-view="chat">Чат</button>
+            <button class="nav-btn manager-only" data-view="schedule">Расписание</button>
+            <button class="nav-btn manager-only" data-view="dictionaries">Справочники</button>
+            <button class="nav-btn manager-only" data-view="export">Экспорт/Импорт</button>
+        </nav>
+
+        <main class="content">
+            <!-- Продажи -->
+            <section id="view-sales" class="view active">
+                <h2>Продажи</h2>
+                
+                <!-- Форма создания продажи -->
+                <div class="card">
+                    <h3>Новая продажа</h3>
+                    <form id="sale-form" class="form-grid">
+                        <select id="sale-schedule" required>
+                            <option value="">Выберите экскурсию</option>
+                        </select>
+                        <input type="text" id="sale-client-name" placeholder="ФИО клиента" required>
+                        <input type="tel" id="sale-phone" placeholder="Телефон">
+                        <input type="number" id="sale-people-count" placeholder="Количество человек" min="1" value="1" required>
+                        <input type="number" id="sale-prepayment" placeholder="Предоплата" step="0.01" min="0">
+                        <input type="number" id="sale-debt" placeholder="Долг" step="0.01" min="0">
+                        <select id="sale-boarding-point">
+                            <option value="">Точка посадки</option>
+                        </select>
+                        <input type="text" id="sale-source-name" placeholder="Источник (точка/агент)" readonly>
+                        <textarea id="sale-comment" placeholder="Комментарий" rows="2"></textarea>
+                        <button type="submit" class="btn-primary btn-large">Сохранить продажу</button>
+                    </form>
+                    <p id="sale-message" class="message"></p>
+                </div>
+
+                <!-- Список продаж -->
+                <div class="card">
+                    <h3>Список продаж</h3>
+                    <div class="filter-row">
+                        <select id="sales-filter-schedule">
+                            <option value="">Все экскурсии</option>
+                        </select>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>№</th>
+                                <th>Клиент</th>
+                                <th>Телефон</th>
+                                <th>Людей</th>
+                                <th>Предоплата</th>
+                                <th>Долг</th>
+                                <th>Точка посадки</th>
+                                <th>Источник</th>
+                                <th>Дата</th>
+                                <th class="manager-only">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sales-table-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Водительский лист -->
+            <section id="view-driver-sheet" class="view hidden">
+                <h2>Водительский лист</h2>
+                <div class="card">
+                    <div class="form-row">
+                        <select id="sheet-schedule" required>
+                            <option value="">Выберите экскурсию</option>
+                        </select>
+                        <select id="sheet-driver">
+                            <option value="">Водитель</option>
+                        </select>
+                        <select id="sheet-guide">
+                            <option value="">Экскурсовод</option>
+                        </select>
+                        <button id="sheet-generate-btn" class="btn-primary">Сформировать</button>
+                        <button id="sheet-print-btn" class="btn-secondary">Печать</button>
+                    </div>
+                </div>
+                <div id="sheet-content" class="card hidden">
+                    <div class="sheet-header">
+                        <img src="logo.png" alt="Логотип" class="sheet-logo" onerror="this.style.display='none'">
+                        <h3 id="sheet-title"></h3>
+                        <p id="sheet-info"></p>
+                    </div>
+                    <table class="data-table sheet-table">
+                        <thead>
+                            <tr>
+                                <th>№</th>
+                                <th>ФИО</th>
+                                <th>Телефон</th>
+                                <th>Точка посадки</th>
+                                <th>Время</th>
+                                <th>Предоплата</th>
+                                <th>Долг</th>
+                                <th>Источник</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sheet-table-body"></tbody>
+                        <tfoot>
+                            <tr class="total-row">
+                                <td colspan="3">Итого:</td>
+                                <td id="sheet-total-people">0</td>
+                                <td></td>
+                                <td></td>
+                                <td id="sheet-total-debt">0</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Касса -->
+            <section id="view-cash" class="view hidden">
+                <h2>Касса</h2>
+                <div class="card">
+                    <h3>Текущие предоплаты</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Пользователь</th>
+                                <th>Роль</th>
+                                <th>Сумма предоплат</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cash-table-body"></tbody>
+                    </table>
+                    <button id="cash-reset-btn" class="btn-danger manager-only">Сброс кассы</button>
+                </div>
+            </section>
+
+            <!-- Чат -->
+            <section id="view-chat" class="view hidden">
+                <h2>Чат</h2>
+                <div class="card">
+                    <div id="chat-messages" class="chat-messages"></div>
+                    <form id="chat-form" class="chat-form">
+                        <input type="text" id="chat-message" placeholder="Сообщение" required>
+                        <button type="submit" class="btn-primary">Отправить</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Расписание (MANAGER) -->
+            <section id="view-schedule" class="view hidden">
+                <h2>Расписание</h2>
+                <div class="card">
+                    <h3>Новая экскурсия в расписании</h3>
+                    <form id="schedule-form" class="form-grid">
+                        <select id="schedule-excursion" required>
+                            <option value="">Выберите экскурсию</option>
+                        </select>
+                        <input type="date" id="schedule-date" required>
+                        <input type="time" id="schedule-time" required>
+                        <select id="schedule-scheme">
+                            <option value="">Схема посадки</option>
+                        </select>
+                        <button type="submit" class="btn-primary">Добавить</button>
+                    </form>
+                </div>
+                <div class="card">
+                    <h3>Активные экскурсии</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Экскурсия</th>
+                                <th>Дата</th>
+                                <th>Время</th>
+                                <th>Схема</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-active-body"></tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <h3>Архив (отработанные)</h3>
+                    <button id="show-archive-btn" class="btn-secondary">Показать архив</button>
+                    <table class="data-table hidden" id="archive-table">
+                        <thead>
+                            <tr>
+                                <th>Экскурсия</th>
+                                <th>Дата</th>
+                                <th>Время</th>
+                                <th>Схема</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-archive-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Справочники (MANAGER) -->
+            <section id="view-dictionaries" class="view hidden">
+                <h2>Справочники</h2>
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="excursions">Экскурсии</button>
+                    <button class="tab-btn" data-tab="sales-points">Точки продаж</button>
+                    <button class="tab-btn" data-tab="agents">Агенты</button>
+                    <button class="tab-btn" data-tab="boarding-points">Точки посадки</button>
+                    <button class="tab-btn" data-tab="boarding-schemes">Схемы посадки</button>
+                    <button class="tab-btn" data-tab="drivers">Водители</button>
+                    <button class="tab-btn" data-tab="guides">Экскурсоводы</button>
+                    <button class="tab-btn" data-tab="users">Пользователи</button>
+                </div>
+                
+                <div class="card">
+                    <h3 id="dict-title">Экскурсии</h3>
+                    <form id="dict-form" class="form-inline">
+                        <input type="text" id="dict-name" placeholder="Название" required>
+                        <button type="submit" class="btn-primary">Добавить</button>
+                    </form>
+                    <ul id="dict-list" class="dict-list"></ul>
+                </div>
+            </section>
+
+            <!-- Экспорт/Импорт (MANAGER) -->
+            <section id="view-export" class="view hidden">
+                <h2>Экспорт и Импорт</h2>
+                <div class="card">
+                    <h3>Экспорт данных</h3>
+                    <p>Скачать полный дамп базы данных (все таблицы, включая пользователей и логи)</p>
+                    <a href="/api/export" class="btn-primary" download>Скачать экспорт</a>
+                </div>
+                <div class="card">
+                    <h3>Импорт справочников</h3>
+                    <p>Загрузить Excel файл со справочниками (только добавление, без изменения существующих)</p>
+                    <form id="import-form">
+                        <input type="file" id="import-file" accept=".xlsx,.xls" required>
+                        <button type="submit" class="btn-primary">Импортировать</button>
+                    </form>
+                    <p id="import-message" class="message"></p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
